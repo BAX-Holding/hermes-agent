@@ -2073,6 +2073,15 @@ DEFAULT_CONFIG = {
                                      # (floor 30s) to enforce a hard cap.
         "reasoning_effort": "",  # reasoning effort for subagents: "xhigh", "high", "medium",
                                  # "low", "minimal", "none" (empty = inherit parent's level)
+        # Allow the agent to pick a per-task model when fanning out work, e.g.
+        # comparing the same task across several models. When True, each
+        # delegate_task entry may carry a `model` field naming a model
+        # ("opus", "gpt-5", "glm") — resolved leniently against the parent's
+        # current provider (aggregator-aware), falling back to delegation.provider.
+        # Off by default: the documented contract is that subagents inherit the
+        # parent model, and per-task model selection can route work to a more
+        # expensive model than the user expects. Opt in deliberately.
+        "allow_model_selection": False,
         "max_concurrent_children": 3,  # max parallel children per batch; floor of 1 enforced, no ceiling
         "max_async_children": 3,  # max concurrent background (background=true) subagents; new dispatches rejected at capacity
         # Orchestrator role controls (see tools/delegate_tool.py:_get_max_spawn_depth

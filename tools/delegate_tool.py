@@ -543,6 +543,99 @@ def _get_inherit_mcp_toolsets() -> bool:
     return is_truthy_value(cfg.get("inherit_mcp_toolsets"), default=True)
 
 
+def _get_allow_model_selection() -> bool:
+    """Whether delegate_task tasks may carry a per-task ``model`` field.
+
+    Config key: delegation.allow_model_selection (bool, default False).
+    Off by default — subagents inherit the parent model unless the user opts
+    in, since per-task model routing can send work to a more expensive model
+    than expected.
+    """
+    cfg = _load_config()
+    return is_truthy_value(cfg.get("allow_model_selection"), default=False)
+
+
+def _resolve_task_model_creds(model_name: str, parent_agent, base_creds: dict) -> dict:
+    """Resolve a per-task model NAME to a full credential bundle.
+
+    Ported (adapted) from Kilo-Org/kilocode#11786: the agent names a model
+    ("opus", "gpt-5", "glm") and we resolve it leniently — provider is
+    *resolved, not dictated*. Reuses the existing aggregator-aware
+    ``model_switch.switch_model()`` pipeline (the same resolution chain the
+    ``/model`` command uses) so name matching, vendor/model slug conversion,
+    fuzzy aliasing, and cross-provider fallback all come for free instead of
+    being reinvented here.
+
+    Resolution anchors on the parent agent's current provider/credentials, so
+    a bare name like "opus" stays on the parent's aggregator when available.
+    On failure, raises ValueError with the resolver's message so the caller can
+    surface a clear per-task error rather than silently falling back to the
+    default model (which would mask the agent's intent).
+
+    Returns a creds dict shaped like ``_resolve_delegation_credentials`` output
+    (model / provider / base_url / api_key / api_mode), starting from
+    ``base_creds`` and overriding only the fields the switch resolves.
+    """
+    name = (model_name or "").strip()
+    if not name:
+        return base_creds
+
+    from hermes_cli.model_switch import switch_model
+
+    parent_provider = getattr(parent_agent, "provider", "") or ""
+    parent_model = getattr(parent_agent, "model", "") or ""
+    parent_base_url = getattr(parent_agent, "base_url", "") or ""
+    parent_api_key = getattr(parent_agent, "api_key", "") or ""
+
+    # Pull user/custom provider config so user-defined endpoints resolve too.
+    user_providers = {}
+    custom_providers = None
+    try:
+        from cli import CLI_CONFIG
+
+        user_providers = CLI_CONFIG.get("providers") or {}
+        custom_providers = CLI_CONFIG.get("custom_providers")
+    except Exception:
+        try:
+            from hermes_cli.config import load_config
+
+            _full = load_config()
+            user_providers = _full.get("providers") or {}
+            custom_providers = _full.get("custom_providers")
+        except Exception:
+            pass
+
+    result = switch_model(
+        raw_input=name,
+        current_provider=parent_provider,
+        current_model=parent_model,
+        current_base_url=parent_base_url,
+        current_api_key=parent_api_key,
+        is_global=False,
+        user_providers=user_providers,
+        custom_providers=custom_providers,
+    )
+
+    if not result.success:
+        raise ValueError(
+            result.error_message
+            or f"Could not resolve model '{name}' for this subagent."
+        )
+
+    creds = dict(base_creds)
+    creds["model"] = result.new_model or creds.get("model")
+    # Only override provider/credentials when the resolved provider actually
+    # differs from the parent — when it's the same aggregator, keep the
+    # inherited credential bundle (None values) so _build_child_agent's parent
+    # inheritance path handles auth, matching the no-override default.
+    if result.target_provider and result.target_provider != parent_provider:
+        creds["provider"] = result.target_provider
+        creds["base_url"] = result.base_url or None
+        creds["api_key"] = result.api_key or None
+        creds["api_mode"] = result.api_mode or None
+    return creds
+
+
 def _is_mcp_toolset_name(name: str) -> bool:
     """Return True for canonical MCP toolsets and their registered aliases."""
     if not name:
@@ -2130,6 +2223,7 @@ def delegate_task(
     acp_command: Optional[str] = None,
     acp_args: Optional[List[str]] = None,
     role: Optional[str] = None,
+    model: Optional[str] = None,
     background: Optional[bool] = None,
     parent_agent=None,
 ) -> str:
@@ -2232,7 +2326,13 @@ def delegate_task(
         task_list = tasks
     elif goal and isinstance(goal, str) and goal.strip():
         task_list = [
-            {"goal": goal, "context": context, "toolsets": toolsets, "role": top_role}
+            {
+                "goal": goal,
+                "context": context,
+                "toolsets": toolsets,
+                "role": top_role,
+                "model": model,
+            }
         ]
     else:
         return tool_error("Provide either 'goal' (single task) or 'tasks' (batch).")
@@ -2268,31 +2368,49 @@ def delegate_task(
     # child build raises (otherwise _last_resolved_tool_names stays corrupted).
     children = []
     try:
+        allow_model_selection = _get_allow_model_selection()
         for i, t in enumerate(task_list):
             task_acp_args = t.get("acp_args") if "acp_args" in t else None
             # Per-task role beats top-level; normalise again so unknown
             # per-task values warn and degrade to leaf uniformly.
             effective_role = _normalize_role(t.get("role") or top_role)
+            # Per-task model selection (ported from Kilo-Org/kilocode#11786,
+            # gated behind delegation.allow_model_selection). When enabled and a
+            # task names a model, resolve it leniently via the shared model_switch
+            # pipeline; otherwise fall back to the delegation default creds. The
+            # flag-off path is byte-identical to the prior behavior.
+            task_creds = creds
+            task_model_request = (t.get("model") or "").strip() if isinstance(t, dict) else ""
+            if task_model_request and allow_model_selection:
+                try:
+                    task_creds = _resolve_task_model_creds(
+                        task_model_request, parent_agent, creds
+                    )
+                except ValueError as exc:
+                    return tool_error(
+                        f"Task {i}: could not resolve model "
+                        f"'{task_model_request}': {exc}"
+                    )
             child = _build_child_agent(
                 task_index=i,
                 goal=t["goal"],
                 context=t.get("context"),
                 toolsets=t.get("toolsets") or toolsets,
-                model=creds["model"],
+                model=task_creds["model"],
                 max_iterations=effective_max_iter,
                 task_count=n_tasks,
                 parent_agent=parent_agent,
-                override_provider=creds["provider"],
-                override_base_url=creds["base_url"],
-                override_api_key=creds["api_key"],
-                override_api_mode=creds["api_mode"],
+                override_provider=task_creds["provider"],
+                override_base_url=task_creds["base_url"],
+                override_api_key=task_creds["api_key"],
+                override_api_mode=task_creds["api_mode"],
                 override_acp_command=t.get("acp_command")
                 or acp_command
-                or creds.get("command"),
+                or task_creds.get("command"),
                 override_acp_args=(
                     task_acp_args
                     if task_acp_args is not None
-                    else (acp_args if acp_args is not None else creds.get("args"))
+                    else (acp_args if acp_args is not None else task_creds.get("args"))
                 ),
                 role=effective_role,
             )
@@ -3058,6 +3176,40 @@ def _build_dynamic_schema_overrides() -> dict:
     }
     overrides_params["properties"]["tasks"]["description"] = _build_tasks_param_description()
     overrides_params["properties"]["role"]["description"] = _build_role_param_description()
+
+    # Per-task model selection (ported from Kilo-Org/kilocode#11786). Only
+    # advertise the `model` field to the model when the user has opted in via
+    # delegation.allow_model_selection — otherwise the schema is byte-identical
+    # to the prior behavior, preserving the "subagents inherit the parent model"
+    # contract. The flag is a stable per-session config value, so toggling it
+    # between sessions (not mid-conversation) keeps prompt caching valid.
+    if _get_allow_model_selection():
+        import copy as _copy
+
+        _model_prop = {
+            "type": "string",
+            "description": (
+                "Optional model for this subagent (e.g. 'opus', 'gpt-5', "
+                "'glm', or a full 'vendor/model' slug). Names are matched "
+                "leniently and resolved to a concrete provider automatically, "
+                "preferring your current provider. Omit to inherit the parent "
+                "model. Use this to fan work out across different models — e.g. "
+                "review the same code with several models in parallel."
+            ),
+        }
+        overrides_params["properties"]["model"] = _model_prop
+        # tasks.items.properties is shared with the static schema; deep-copy
+        # the items dict before adding the per-task `model` field so we never
+        # mutate DELEGATE_TASK_SCHEMA.
+        _tasks_prop = _copy.deepcopy(overrides_params["properties"]["tasks"])
+        _tasks_prop["items"]["properties"]["model"] = dict(_model_prop)
+        _tasks_prop["items"]["properties"]["model"]["description"] = (
+            "Optional per-task model (e.g. 'opus', 'gpt-5', 'glm', or a "
+            "'vendor/model' slug). Resolved leniently; omit to inherit the "
+            "parent model."
+        )
+        overrides_params["properties"]["tasks"] = _tasks_prop
+
     return {
         "description": _build_top_level_description(),
         "parameters": overrides_params,
@@ -3229,6 +3381,7 @@ registry.register(
         acp_command=args.get("acp_command"),
         acp_args=args.get("acp_args"),
         role=args.get("role"),
+        model=args.get("model"),
         background=_model_background_value(args, kw.get("parent_agent")),
         parent_agent=kw.get("parent_agent"),
     ),

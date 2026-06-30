@@ -270,6 +270,7 @@ delegation:
   # max_concurrent_children: 3              # Parallel children per batch (default: 3)
   # max_spawn_depth: 1                      # Tree depth (floor 1, no ceiling, default 1 = flat). Raise to 2 to allow orchestrator children to spawn leaves; 3+ for deeper trees.
   # orchestrator_enabled: true              # Disable to force all children to leaf role.
+  # allow_model_selection: false            # Let the agent pick a per-task model when fanning out (default: false)
   model: "google/gemini-3-flash-preview"             # Optional provider/model override
   provider: "openrouter"                             # Optional built-in provider
   api_mode: anthropic_messages                       # optional; auto-detected from base_url for anthropic_messages endpoints
@@ -283,6 +284,19 @@ delegation:
 ```
 
 When `base_url` points at an Anthropic-compatible endpoint — for example a path ending in `/anthropic`, an Azure Foundry Claude route, or a MiniMax `/anthropic` proxy — `api_mode` is auto-detected as `anthropic_messages` so the subagent uses the right wire format without you setting anything. Set `api_mode` explicitly when the auto-detection guess is wrong (rare).
+
+### Per-task model selection
+
+By default every subagent inherits the parent's model (or `delegation.model` if set). Set `allow_model_selection: true` to let the agent name a model **per task** when it fans work out — for example, reviewing the same code with several models in parallel:
+
+```yaml
+delegation:
+  allow_model_selection: true
+```
+
+With the flag on, `delegate_task` gains an optional `model` field (on both the single-goal call and each entry in a `tasks` batch). The agent names a model the way a human would — `"opus"`, `"gpt-5"`, `"glm"`, or a full `"vendor/model"` slug — and Hermes resolves it leniently through the same pipeline as the `/model` command: the **provider is resolved, not dictated**, preferring whatever provider backs your current model. Unresolvable names return a clear per-task error instead of silently falling back to the default model.
+
+The flag is off by default because per-task routing can send work to a more expensive model than you expect, and because the schema field only appears when you opt in (keeping the tool surface minimal otherwise).
 
 :::tip
 The agent handles delegation automatically based on the task complexity. You don't need to explicitly ask it to delegate — it will do so when it makes sense.
