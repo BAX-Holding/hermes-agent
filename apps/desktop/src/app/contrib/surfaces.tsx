@@ -8,28 +8,15 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { type ComponentProps, lazy, memo, Suspense, useMemo } from 'react'
+import { type ComponentProps, lazy, memo, type ReactNode, Suspense, useMemo } from 'react'
 import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 
-import { Button } from '@/components/ui/button'
-import { Codicon } from '@/components/ui/codicon'
 import { ContribBoundary } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
-import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
-import { $pinnedSessionIds } from '@/store/layout'
-import {
-  $activeSessionId,
-  $freshDraftReady,
-  $gatewayState,
-  $selectedStoredSessionId,
-  $sessions,
-  sessionMatchesStoredId,
-  sessionPinId
-} from '@/store/session'
+import { $freshDraftReady, $gatewayState } from '@/store/session'
 
 import { ChatView } from '../chat'
 import { ChatSidebar } from '../chat/sidebar'
-import { SessionActionsMenu } from '../chat/sidebar/session-actions-menu'
 import { TerminalPaneChrome } from '../right-sidebar/terminal/chrome'
 import { contributedRoutes, NEW_CHAT_ROUTE, ROUTES_AREA, sessionRoute } from '../routes'
 import { useStatusSnapshot } from '../shell/hooks/use-status-snapshot'
@@ -51,61 +38,6 @@ export function LegacySessionRedirect() {
   const { sessionId } = useParams()
 
   return <Navigate replace to={sessionId ? sessionRoute(sessionId) : NEW_CHAT_ROUTE} />
-}
-
-// The session-title dropdown (rename/pin/branch/delete menu) — the real app's
-// ChatHeader, relocated into the composable titlebar's CENTER slot. In the
-// tree layout the chat pane has no titlebar band of its own (the old in-pane
-// <header> is a zero-height suppressed strip), so the dropdown lives in the
-// window titlebar, centered over the workspace like it always visually was.
-function SessionTitleDropdown({
-  isRoutedSessionView,
-  onDelete,
-  onPin
-}: {
-  isRoutedSessionView: boolean
-  onDelete: () => void
-  onPin: () => void
-}) {
-  const sessions = useStore($sessions)
-  const pinnedSessionIds = useStore($pinnedSessionIds)
-  const selectedStoredSessionId = useStore($selectedStoredSessionId)
-  const activeSessionId = useStore($activeSessionId)
-
-  const stored =
-    (selectedStoredSessionId && sessions.find(s => sessionMatchesStoredId(s, selectedStoredSessionId))) || null
-
-  const title = stored ? storedSessionTitle(stored) : 'New session'
-
-  // Pins live on the durable lineage-root id (survives auto-compression).
-  const pinId = stored ? sessionPinId(stored) : selectedStoredSessionId
-  const pinned = pinId ? pinnedSessionIds.includes(pinId) : false
-
-  // A brand-new draft has nothing to rename/pin/delete.
-  if (!selectedStoredSessionId && !activeSessionId && !isRoutedSessionView) {
-    return null
-  }
-
-  return (
-    <SessionActionsMenu
-      align="center"
-      onDelete={selectedStoredSessionId ? onDelete : undefined}
-      onPin={selectedStoredSessionId ? onPin : undefined}
-      pinned={pinned}
-      sessionId={selectedStoredSessionId || activeSessionId || ''}
-      sideOffset={8}
-      title={title}
-    >
-      <Button
-        className="pointer-events-auto flex h-6 min-w-0 max-w-[38vw] gap-1 overflow-hidden border border-transparent bg-transparent px-2 py-0 text-(--ui-text-secondary) hover:border-(--ui-stroke-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground data-[state=open]:border-(--ui-stroke-tertiary) data-[state=open]:bg-(--ui-control-active-background) [-webkit-app-region:no-drag]"
-        type="button"
-        variant="ghost"
-      >
-        <h2 className="min-w-0 flex-1 truncate text-[0.75rem] font-medium leading-none">{title}</h2>
-        <Codicon className="shrink-0 text-(--ui-text-tertiary)" name="chevron-down" size="0.8125rem" />
-      </Button>
-    </SessionActionsMenu>
-  )
 }
 
 export const SidebarSurface = memo(function SidebarSurface({
@@ -163,22 +95,6 @@ export const StatusbarSurface = memo(function StatusbarSurface({
   })
 
   return <StatusbarControls items={statusbarItems} leftItems={leftStatusbarItems} />
-})
-
-export const SessionTitleSurface = memo(function SessionTitleSurface({
-  actions,
-  isRoutedSessionView
-}: {
-  actions: WiringActions
-  isRoutedSessionView: boolean
-}) {
-  return (
-    <SessionTitleDropdown
-      isRoutedSessionView={isRoutedSessionView}
-      onDelete={actions.onDeleteSelectedSession}
-      onPin={actions.onToggleSelectedPin}
-    />
-  )
 })
 
 /** The workspace pane: the real route table (chat + full-page views + plugin
@@ -248,34 +164,22 @@ export const ChatRoutesSurface = memo(function ChatRoutesSurface({
     />
   )
 
+  // FULL-PAGE views (not chat) mark the zone body `data-zone-no-header`: a
+  // page is not a tab-able surface, so the zone's double-click header toggle
+  // stands down while one is showing (see onZoneDoubleClick).
+  const page = (view: ReactNode) => (
+    <div className="contents" data-zone-no-header>
+      <Suspense fallback={null}>{view}</Suspense>
+    </div>
+  )
+
   return (
     <Routes>
       <Route element={chatView} index />
       <Route element={chatView} path=":sessionId" />
-      <Route
-        element={
-          <Suspense fallback={null}>
-            <SkillsView setStatusbarItemGroup={setStatusbarItemGroup} />
-          </Suspense>
-        }
-        path="skills"
-      />
-      <Route
-        element={
-          <Suspense fallback={null}>
-            <MessagingView setStatusbarItemGroup={setStatusbarItemGroup} />
-          </Suspense>
-        }
-        path="messaging"
-      />
-      <Route
-        element={
-          <Suspense fallback={null}>
-            <ArtifactsView setStatusbarItemGroup={setStatusbarItemGroup} />
-          </Suspense>
-        }
-        path="artifacts"
-      />
+      <Route element={page(<SkillsView setStatusbarItemGroup={setStatusbarItemGroup} />)} path="skills" />
+      <Route element={page(<MessagingView setStatusbarItemGroup={setStatusbarItemGroup} />)} path="messaging" />
+      <Route element={page(<ArtifactsView setStatusbarItemGroup={setStatusbarItemGroup} />)} path="artifacts" />
       <Route element={null} path="agents" />
       <Route element={null} path="command-center" />
       <Route element={null} path="cron" />
@@ -287,7 +191,7 @@ export const ChatRoutesSurface = memo(function ChatRoutesSurface({
           as every other contribution mount. */}
       {routeContributions.map(route => (
         <Route
-          element={<ContribBoundary id={route.key}>{route.render()}</ContribBoundary>}
+          element={page(<ContribBoundary id={route.key}>{route.render()}</ContribBoundary>)}
           key={route.key}
           path={route.path.slice(1)}
         />

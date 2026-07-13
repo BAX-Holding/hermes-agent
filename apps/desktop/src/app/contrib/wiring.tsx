@@ -70,7 +70,7 @@ import { PetGenerateOverlay } from '../pet-generate/pet-generate-overlay'
 import { FileActionDialogs } from '../right-sidebar/file-actions'
 import { RemoteFolderPicker } from '../right-sidebar/files/remote-picker'
 import { PersistentTerminal } from '../right-sidebar/terminal/persistent'
-import { CRON_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from '../routes'
+import { CRON_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE, syncWorkspaceIsPage } from '../routes'
 import { SessionPickerOverlay } from '../session-picker-overlay'
 import { SessionSwitcher } from '../session-switcher'
 import { useContextSuggestions } from '../session/hooks/use-context-suggestions'
@@ -97,7 +97,7 @@ import { useDesktopIntegrations } from './hooks/use-desktop-integrations'
 import { usePetBridge } from './hooks/use-pet-bridge'
 import { useSessionTileDelegate } from './hooks/use-session-tile-delegate'
 import { $restartPreviewServer, useTitlebarToolContributions } from './panes'
-import { ChatRoutesSurface, SessionTitleSurface, SidebarSurface, StatusbarSurface, TerminalSurface } from './surfaces'
+import { ChatRoutesSurface, SidebarSurface, StatusbarSurface, TerminalSurface } from './surfaces'
 import type { WiringActions, WiringApi } from './types'
 
 // Overlay views the controller mounts over the shell — lazy, load on demand.
@@ -110,7 +110,7 @@ const ProfilesView = lazy(async () => ({ default: (await import('../profiles')).
 const SettingsView = lazy(async () => ({ default: (await import('../settings')).SettingsView }))
 const StarmapView = lazy(async () => ({ default: (await import('../starmap')).StarmapView }))
 
-// Surfaces (the five wired panes), the render context + WiredPane, and the
+// Surfaces (the four wired panes), the render context + WiredPane, and the
 // WiringActions/WiringApi contracts all live in sibling modules — this file is
 // the controller that assembles them.
 export { WiredPane } from './context'
@@ -142,6 +142,13 @@ export function ContribWiring({ children }: { children: ReactNode }) {
   const routeTokenRef = useRef(routeToken)
   routeTokenRef.current = routeToken
   const getRouteToken = useCallback(() => routeTokenRef.current, [])
+
+  // Mirror "the workspace is showing a full page" into its atom — the
+  // workspace pane contribution re-registers headerVeto from it, so the main
+  // zone's tab bar stands down on pages (and returns with the chat).
+  useEffect(() => {
+    syncWorkspaceIsPage(location.pathname)
+  }, [location.pathname])
 
   const {
     agentsOpen,
@@ -354,6 +361,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     branchCurrentSession,
     branchStoredSession,
     createBackendSessionForSend,
+    openNewSessionTile,
     removeSession,
     resumeSession,
     selectSidebarItem,
@@ -492,6 +500,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     branchCurrentSession: branchInNewChat,
     busyRef,
     createBackendSessionForSend,
+    getRouteToken,
     handleSkinCommand,
     openMemoryGraph: openStarmap,
     refreshSessions,
@@ -503,10 +512,13 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     updateSessionState
   })
 
-  // Session-tile delegate (resume/submit/interrupt/slash for tiled sessions,
-  // without touching the primary view).
+  // Session-tile delegate (resume/submit/interrupt/slash + the session verbs
+  // the tile TAB menu needs, without touching the primary view).
   useSessionTileDelegate({
+    archiveSession,
+    branchStoredSession,
     executeSlashCommand,
+    removeSession,
     requestGateway,
     runtimeIdByStoredSessionIdRef,
     sessionStateByRuntimeIdRef,
@@ -655,6 +667,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
   // Single global listener for every rebindable hotkey plus the on-screen
   // keybind editor's capture mode (same as DesktopController).
   useKeybinds({
+    openNewSessionTab: () => void openNewSessionTile('center'),
     startFreshSession: startFreshSessionDraft,
     toggleCommandCenter,
     toggleSelectedPin
@@ -693,6 +706,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     },
     onNavigate: selectSidebarItem,
     onNewSessionInWorkspace: startSessionInWorkspace,
+    onNewSessionSplit: dir => void openNewSessionTile(dir),
     onPasteClipboardImage: opts => composer.pasteClipboardImage(opts),
     onPickFiles: () => void composer.pickContextPaths('file'),
     onPickFolders: () => void composer.pickContextPaths('folder'),
@@ -752,15 +766,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     [actions, agentsOpen, chatOpen, commandCenterOpen]
   )
 
-  // Chat surface only — full-page views (skills/messaging/…) own their bars.
-  const sessionTitleNode = useMemo(
-    () =>
-      chatOpen && !isSecondaryWindow() ? (
-        <SessionTitleSurface actions={actions} isRoutedSessionView={Boolean(routedSessionId)} />
-      ) : null,
-    [actions, chatOpen, routedSessionId]
-  )
-
   // The voice cap changes only on config load; the gateway instance + all
   // chat reactivity are subscribed inside ChatRoutesSurface / ChatView.
   const chatRoutesNode = useMemo(
@@ -771,12 +776,11 @@ export function ContribWiring({ children }: { children: ReactNode }) {
   const api = useMemo<WiringApi>(
     () => ({
       chatRoutes: chatRoutesNode,
-      sessionTitle: sessionTitleNode,
       sidebar: sidebarNode,
       statusbar: statusbarNode,
       terminal: terminalNode
     }),
-    [chatRoutesNode, sessionTitleNode, sidebarNode, statusbarNode, terminalNode]
+    [chatRoutesNode, sidebarNode, statusbarNode, terminalNode]
   )
 
   // The REAL titlebar tool clusters (sidebar/flip toggles, haptics, keybinds,

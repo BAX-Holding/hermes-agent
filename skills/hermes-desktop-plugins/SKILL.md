@@ -32,9 +32,10 @@ those are Python and documented separately.
 
 ## How to Run
 
-1. Create `~/.hermes/desktop-plugins/<name>/plugin.js` from
-   `templates/plugin.js` (relative to this skill directory). Keep `<name>`
-   equal to the plugin `id`.
+1. Create `$HERMES_HOME/desktop-plugins/<name>/plugin.js` from
+   `templates/plugin.js` (relative to this skill directory) — that's
+   `~/.hermes/...` by default, or `~/.hermes/profiles/<profile>/...` under a
+   named profile. Keep `<name>` equal to the plugin `id`.
 2. The desktop app watches that directory: the plugin loads within a few
    seconds of the file landing, and every later save hot-reloads it in
    place. No reload step. (Fallback if it doesn't appear: ⌘K →

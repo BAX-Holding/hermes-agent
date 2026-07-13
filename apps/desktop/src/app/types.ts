@@ -1,6 +1,7 @@
 import type * as React from 'react'
 
 import type { ChatMessage } from '@/lib/chat-messages'
+import type { UsageStats } from '@/types/hermes'
 
 export interface ContextSuggestion {
   text: string
@@ -159,4 +160,8 @@ export interface ClientSessionState {
    *  focused, and switching sessions doesn't zero a still-running turn's clock.
    *  The global $turnStartedAt mirrors whichever session is currently viewed. */
   turnStartedAt: number | null
+  /** Cumulative token usage, updated per completed turn. Per-session twin of
+   *  the primary-only $currentUsage — the statusbar reads it for a focused
+   *  tile's context count. Null until the first turn reports. */
+  usage: null | UsageStats
 }

@@ -135,6 +135,9 @@ export function useSessionTileActions({ runtimeId, scope, storedSessionId }: Ses
     busyRef,
     copy,
     createBackendSessionForSend: async () => runtimeIdRef.current,
+    // A tile IS its session — no route to abandon, so the create-abort guard's
+    // token is a stable constant (the guard never trips for a tile).
+    getRouteToken: () => runtimeId,
     requestGateway,
     selectedStoredSessionIdRef: storedIdRef,
     syncAttachmentsForSubmit,

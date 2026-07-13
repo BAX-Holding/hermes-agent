@@ -23,6 +23,8 @@ import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef,
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { registry } from '@/contrib/registry'
+import { useI18n } from '@/i18n'
+import { ESCAPE_PRIORITY, isTopEscapeLayer, pushEscapeLayer } from '@/lib/escape-layers'
 import { cn } from '@/lib/utils'
 
 import {
@@ -86,6 +88,7 @@ function resizerGeometry(resizer: GridResizer, zones: GridZone[]) {
 }
 
 export function ZoneEditor() {
+  const { t } = useI18n()
   const open = useStore($zoneEditorOpen)
   const [model, setModel] = useState<GridLayout>(() => initPriorityGrid(3))
   const [templateCount, setTemplateCount] = useState(3)
@@ -107,12 +110,17 @@ export function ZoneEditor() {
       return
     }
 
+    const releaseLayer = pushEscapeLayer(ESCAPE_PRIORITY.zoneEditor)
+
     const down = (e: KeyboardEvent) => {
       if (e.key === 'Shift') {
         setShift(true)
       }
 
-      if (e.key === 'Escape') {
+      // Skip when a nested field (the name Input) already handled Escape, or a
+      // higher layer owns it.
+      if (e.key === 'Escape' && !e.defaultPrevented && isTopEscapeLayer(ESCAPE_PRIORITY.zoneEditor)) {
+        e.preventDefault()
         $zoneEditorOpen.set(false)
       }
     }
@@ -129,6 +137,7 @@ export function ZoneEditor() {
     return () => {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
+      releaseLayer()
     }
   }, [open])
 
@@ -291,7 +300,7 @@ export function ZoneEditor() {
       return
     }
 
-    const id = saveLayoutPresetTree(name || `Custom ${zones.length}-zone`, tree)
+    const id = saveLayoutPresetTree(name || t.zones.customZoneName(zones.length), tree)
 
     if (id) {
       applyLayoutPreset(id, tree)
@@ -301,10 +310,10 @@ export function ZoneEditor() {
   }
 
   const templates = [
-    { label: 'Columns', make: initColumns },
-    { label: 'Rows', make: initRows },
-    { label: 'Grid', make: initGrid },
-    { label: 'Priority', make: initPriorityGrid }
+    { label: t.zones.templateColumns, make: initColumns },
+    { label: t.zones.templateRows, make: initRows },
+    { label: t.zones.templateGrid, make: initGrid },
+    { label: t.zones.templatePriority, make: initPriorityGrid }
   ]
 
   return (
@@ -312,10 +321,13 @@ export function ZoneEditor() {
       {/* Toolbar — Panel-style title + hint, template chooser on the right. */}
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-foreground">Zone editor</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t.zones.zoneEditorTitle}</h2>
           <p className="text-xs text-muted-foreground/80">
-            click to split · <kbd className="rounded border border-(--ui-stroke-secondary) bg-foreground/5 px-1 font-mono text-[10px]">⇧</kbd>{' '}
-            flips the line · drag across zones to merge · drag shared edges to resize
+            {t.zones.editorHintPre}
+            <kbd className="rounded border border-(--ui-stroke-secondary) bg-foreground/5 px-1 font-mono text-[10px]">
+              ⇧
+            </kbd>
+            {t.zones.editorHintPost}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -373,7 +385,7 @@ export function ZoneEditor() {
               {/* Quiet zone tag — the app's small-caps label voice, not a
                   billboard number. */}
               <span className="select-none text-[0.64rem] font-semibold uppercase tracking-[0.16em] text-(--ui-text-tertiary)">
-                zone {zone.index + 1}
+                {t.zones.zoneTag(zone.index + 1)}
               </span>
             </div>
           )
@@ -457,7 +469,7 @@ export function ZoneEditor() {
               size="sm"
               variant="outline"
             >
-              Merge {selection.length} zones
+              {t.zones.mergeZones(selection.length)}
             </Button>
           </div>
         )}
@@ -468,21 +480,27 @@ export function ZoneEditor() {
         <Input
           className="h-7 w-64 text-xs"
           onChange={e => setName(e.target.value)}
-          placeholder={`Layout name (Custom ${zones.length}-zone)`}
+          // Escape while typing clears the field and yields — it must not bubble
+          // up to close the whole editor and lose the name.
+          onKeyDown={e => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              e.stopPropagation()
+              setName('')
+              e.currentTarget.blur()
+            }
+          }}
+          placeholder={t.zones.layoutNamePlaceholder(t.zones.customZoneName(zones.length))}
           value={name}
         />
         <Button disabled={!treeExpressible} onClick={save} size="sm" variant="outline">
-          Save & apply
+          {t.zones.saveApply}
         </Button>
         <Button onClick={() => $zoneEditorOpen.set(false)} size="sm" variant="ghost">
-          Cancel
+          {t.common.cancel}
         </Button>
-        {!treeExpressible && (
-          <span className="text-xs text-muted-foreground/80">
-            this arrangement interlocks (pinwheel) — not expressible as nested splits yet
-          </span>
-        )}
-        <span className="ml-auto text-xs text-muted-foreground/60">{zones.length} zones</span>
+        {!treeExpressible && <span className="text-xs text-muted-foreground/80">{t.zones.notExpressible}</span>}
+        <span className="ml-auto text-xs text-muted-foreground/60">{t.zones.zoneCount(zones.length)}</span>
       </div>
     </div>
   )

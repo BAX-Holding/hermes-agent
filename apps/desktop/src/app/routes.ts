@@ -1,3 +1,4 @@
+import { atom } from 'nanostores'
 import type { ReactNode } from 'react'
 
 import { registry } from '@/contrib/registry'
@@ -79,12 +80,13 @@ export interface RouteContribution {
   path: string
 }
 
-export function contributedRoutes(): Array<{ key: string; path: string; render: () => ReactNode }> {
+export function contributedRoutes(): Array<{ key: string; path: string; title?: string; render: () => ReactNode }> {
   return registry
     .getArea(ROUTES_AREA)
     .map(c => ({
       key: `${c.source ?? 'core'}:${c.id}`,
       path: (c.data as RouteContribution | undefined)?.path ?? '',
+      title: c.title,
       render: c.render!
     }))
     .filter(route => Boolean(route.path.startsWith('/') && route.render) && !RESERVED_PATHS.has(route.path))
@@ -154,4 +156,20 @@ export function appViewForPath(pathname: string): AppView {
   }
 
   return APP_VIEW_BY_PATH.get(pathname) ?? 'chat'
+}
+
+/** True while the workspace pane shows a FULL PAGE (skills/messaging/
+ *  artifacts/plugin routes) instead of the chat. Published by the wiring
+ *  (which owns the router location); the workspace pane contribution mirrors
+ *  it as `headerVeto` so the zone tab bar stands down on pages. Overlays
+ *  (settings/…) don't count — the chat stays beneath them. */
+export const $workspaceIsPage = atom(false)
+
+export function syncWorkspaceIsPage(pathname: string): void {
+  const view = appViewForPath(pathname)
+  const isPage = view !== 'chat' && !isOverlayView(view)
+
+  if (isPage !== $workspaceIsPage.get()) {
+    $workspaceIsPage.set(isPage)
+  }
 }

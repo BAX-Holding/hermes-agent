@@ -133,9 +133,13 @@ export interface Translations {
       retry: string
       repairInstall: string
       useLocalGateway: string
+      gatewaySettings: string
+      back: string
       openLogs: string
       repairHint: string
-      remoteSignInHint: string
+      remoteSignInHint: (signInLabel: string) => string
+      signOutAndSignIn: string
+      remoteFailureHint: string
       hideRecentLogs: string
       showRecentLogs: string
       signedInTitle: string
@@ -458,10 +462,39 @@ export interface Translations {
       profileConnection: (profile: string) => string
       envOverrideTitle: string
       envOverrideDesc: string
+      modeTitle: string
       localTitle: string
       localDesc: string
       remoteTitle: string
       remoteDesc: string
+      remoteAuthHint: string
+      cloudTitle: string
+      cloudDesc: string
+      cloudSignInTitle: string
+      cloudSignIn: string
+      cloudSignedIn: string
+      cloudNeedsSignIn: string
+      cloudSignedInDesc: string
+      cloudAgentsTitle: string
+      cloudOrgPickerTitle: string
+      cloudOrgSelect: string
+      cloudOrgChange: string
+      cloudOrgRole: (role: string) => string
+      cloudLoadingAgents: string
+      cloudNoAgents: { before: string; linkText: string; after: string }
+      cloudRefresh: string
+      cloudConnect: string
+      cloudConnecting: string
+      cloudDiscoverFailed: string
+      cloudConnectFailed: string
+      cloudSignInFailed: string
+      cloudSignedOutTitle: string
+      cloudSignedOutMessage: string
+      cloudConnectedTitle: string
+      cloudConnectedPill: string
+      cloudConnectedTo: (name: string) => string
+      cloudAgentProvisioning: string
+      cloudStatusLabel: (status: string) => string
       remoteUrlTitle: string
       remoteUrlDesc: string
       probing: string
@@ -594,6 +627,9 @@ export interface Translations {
       change: string
       autoUseMain: string
       providerDefault: string
+      fallbackAdd: string
+      fallbackEmpty: string
+      notInCatalog: string
       tasks: Record<string, AuxTaskCopy>
     }
     providers: {
@@ -1192,7 +1228,10 @@ export interface Translations {
     customPlaceholder: string
     customHint: string
     optional: string
+    promptRequired: string
     promptScheduleRequired: string
+    scheduleRequired: string
+    scriptOnlyEditHint: string
     saveChanges: string
     createAction: string
   }
@@ -1325,6 +1364,8 @@ export interface Translations {
       rename: string
       archive: string
       newWindow: string
+      hideTabBar: string
+      openInNewTab: string
       openInSplit: string
       copyIdFailed: string
       actionsFor: (title: string) => string
@@ -1657,7 +1698,9 @@ export interface Translations {
       low: string
       medium: string
       high: string
+      xhigh: string
       max: string
+      ultra: string
       updateFailed: string
       fastFailed: string
     }
@@ -1872,6 +1915,57 @@ export interface Translations {
     }
   }
 
+  zones: {
+    showHeader: string
+    hideHeader: string
+    minimize: string
+    restore: string
+    closeRunningTitle: string
+    closeRunningBody: string
+    closeRunningConfirm: string
+    closeOthers: string
+    closeToRight: string
+    closeAll: string
+    split: (dir: string) => string
+    move: (dir: string) => string
+    dirUp: string
+    dirDown: string
+    dirLeft: string
+    dirRight: string
+    stackHere: string
+    moveHere: string
+    splitHere: string
+    openHere: string
+    spanHere: string
+    staysHere: string
+    pluginDisabled: (pluginId: string) => string
+    pluginDisabledBody: string
+    missingPane: (paneId: string) => string
+    editTitle: string
+    editHint: string
+    reset: string
+    templates: string
+    custom: string
+    newGridLayout: string
+    saveCurrentAs: string
+    nameLayoutPlaceholder: string
+    deletePreset: (name: string) => string
+    zoneEditorTitle: string
+    editorHintPre: string
+    editorHintPost: string
+    templateColumns: string
+    templateRows: string
+    templateGrid: string
+    templatePriority: string
+    zoneTag: (index: number) => string
+    mergeZones: (count: number) => string
+    customZoneName: (count: number) => string
+    layoutNamePlaceholder: (fallback: string) => string
+    saveApply: string
+    notExpressible: string
+    zoneCount: (count: number) => string
+  }
+
   assistant: {
     thread: {
       loadingSession: string
@@ -1927,6 +2021,7 @@ export interface Translations {
       other: string
       placeholder: string
       skip: string
+      skipped: string
       continueLabel: string
     }
     tool: {

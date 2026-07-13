@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ContribBoundary } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
 import type { Contribution } from '@/contrib/types'
+import { ESCAPE_PRIORITY, isTopEscapeLayer, pushEscapeLayer } from '@/lib/escape-layers'
 import { cn } from '@/lib/utils'
 
 import { PANE_TOGGLE_REVEAL_EVENT } from '../..'
@@ -26,6 +27,11 @@ export function NarrowOverlays() {
   const panes = useContributions('panes')
   const hiddenPanes = useStore($hiddenTreePanes)
   const [reveal, setReveal] = useState<{ id: string; pinned: boolean } | null>(null)
+
+  // Own an Escape layer only while something is revealed, so Escape closes the
+  // overlay only when it's the top layer (never under a dialog / edit mode).
+  const revealActive = reveal !== null
+  useEffect(() => (revealActive ? pushEscapeLayer(ESCAPE_PRIORITY.narrowOverlay) : undefined), [revealActive])
 
   const inTree = useMemo(() => new Set(tree ? allPaneIds(tree) : []), [tree])
 
@@ -47,7 +53,8 @@ export function NarrowOverlays() {
     }
 
     const onToggle = (event: Event) => {
-      const id = (event as CustomEvent<{ id?: string }>).detail?.id
+      const detail = (event as CustomEvent<{ id?: string; mode?: 'close' | 'open' | 'toggle' }>).detail
+      const id = detail?.id
 
       if (!id) {
         return
@@ -55,15 +62,33 @@ export function NarrowOverlays() {
 
       const match = collapsiblesRef.current.find(p => p.id === id || paneChrome(p).revealAliases?.includes(id))
 
-      if (match) {
-        setReveal(current => (current?.id === match.id && current.pinned ? null : { id: match.id, pinned: true }))
+      if (!match) {
+        return
       }
+
+      // `open`/`close` are explicit intents (programmatic reveal, titlebar show);
+      // `toggle` (default) is the ⌘B/⌘G flip.
+      const mode = detail?.mode ?? 'toggle'
+      setReveal(current => {
+        if (mode === 'open') {
+          return { id: match.id, pinned: true }
+        }
+
+        if (mode === 'close') {
+          return current?.id === match.id ? null : current
+        }
+
+        return current?.id === match.id && current.pinned ? null : { id: match.id, pinned: true }
+      })
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setReveal(null)
+      if (event.key !== 'Escape' || event.defaultPrevented || !isTopEscapeLayer(ESCAPE_PRIORITY.narrowOverlay)) {
+        return
       }
+
+      event.preventDefault()
+      setReveal(null)
     }
 
     window.addEventListener(PANE_TOGGLE_REVEAL_EVENT, onToggle)

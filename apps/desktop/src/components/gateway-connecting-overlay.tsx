@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DecodeText } from '@/components/ui/decode-text'
 import { cn } from '@/lib/utils'
 import { $desktopBoot } from '@/store/boot'
+import { $gatewaySwitching } from '@/store/gateway-switch'
 import { $gatewayState } from '@/store/session'
 
 // Decode mechanics live in the shared <DecodeText> primitive
@@ -37,8 +38,16 @@ function forcedPreview(): boolean {
 export function GatewayConnectingOverlay() {
   const gatewayState = useStore($gatewayState)
   const boot = useStore($desktopBoot)
+  const gatewaySwitching = useStore($gatewaySwitching)
   const [previewing] = useState(forcedPreview)
   const [phase, setPhase] = useState<Phase>('live')
+  // Once cold boot has completed once, never resurrect the fullscreen overlay
+  // — soft gateway switches keep the shell and reskeleton the sidebar instead.
+  const coldBootDoneRef = useRef(false)
+
+  if (!boot.running && boot.progress >= 100 && !boot.error) {
+    coldBootDoneRef.current = true
+  }
 
   // The full-screen connecting overlay is for initial boot only. After a
   // healthy boot, flaky networks / sleep-wake can drop the socket and flip the
@@ -46,7 +55,14 @@ export function GatewayConnectingOverlay() {
   // the chat then — users should still be able to type drafts, open settings,
   // and recover instead of staring at a modal CONNECTING screen.
   const initialBootActive = boot.visible || boot.running || boot.progress < 100
-  const connecting = gatewayState !== 'open' && !boot.error && initialBootActive
+
+  const connecting =
+    !coldBootDoneRef.current &&
+    !gatewaySwitching &&
+    gatewayState !== 'open' &&
+    !boot.error &&
+    initialBootActive
+
   // Latches once we've actually shown the overlay, so the brief frame where
   // gatewayState flips to "open" (connecting -> false) before the exit phase
   // kicks in doesn't unmount us and cause a flash.

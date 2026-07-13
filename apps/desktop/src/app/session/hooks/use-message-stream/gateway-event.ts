@@ -4,6 +4,7 @@ import { type MutableRefObject, useCallback } from 'react'
 import { writeAgentTerminalChunk } from '@/app/right-sidebar/terminal/agent-terminal-stream'
 import { readActiveTerminal } from '@/app/right-sidebar/terminal/buffer'
 import { closeAgentTerminalByProc } from '@/app/right-sidebar/terminal/terminals'
+import { burstVibeHearts } from '@/components/chat/vibe-hearts'
 import { translateNow } from '@/i18n'
 import { type GatewayEventPayload, textPart } from '@/lib/chat-messages'
 import { coerceGatewayText, coerceThinkingText, normalizePersonalityValue } from '@/lib/chat-runtime'
@@ -265,6 +266,12 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         // KawaiiSpinner), not real reasoning. The bottom-of-thread loading
         // indicator already covers that UX, so we ignore these events to
         // avoid a duplicative "Thinking" disclosure showing spinner text.
+      } else if (event.type === 'reaction') {
+        // Core-detected affection (ily / <3 / good bot) on the user's message.
+        // Play hearts only for the visible session so background turns stay quiet.
+        if (isActiveEvent && (payload?.kind ?? 'vibe') === 'vibe') {
+          burstVibeHearts()
+        }
       } else if (event.type === 'reasoning.delta') {
         if (sessionId) {
           appendReasoningDelta(sessionId, coerceThinkingText(payload?.text))
@@ -347,7 +354,17 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         }
 
         if (payload?.usage) {
-          setCurrentUsage(current => ({ ...current, ...payload.usage }))
+          // Per-session twin FIRST (the statusbar reads it for focused tiles);
+          // the primary-only global mirrors the ACTIVE session — ungated it
+          // let a background tile's turn overwrite the primary's count.
+          updateSessionState(sessionId, state => ({
+            ...state,
+            usage: { calls: 0, input: 0, output: 0, total: 0, ...state.usage, ...payload.usage }
+          }))
+
+          if (isActiveEvent) {
+            setCurrentUsage(current => ({ ...current, ...payload.usage }))
+          }
         }
       } else if (event.type === 'session.title') {
         // Live auto-title push (titler runs async, after the turn's refresh).

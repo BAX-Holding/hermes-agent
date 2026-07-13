@@ -3,24 +3,22 @@
  *
  *  - BUNDLED: every `src/plugins/<name>/plugin.{ts,tsx}` default-exporting a
  *    `HermesPlugin` registers automatically (vite glob — drop a folder in).
- *  - RUNTIME: the in-repo example ships as raw text through the REAL loader
- *    pipeline (rewrite -> shim blobs -> blob import), then the on-disk door
- *    (`<hermes home>/desktop-plugins/<name>/plugin.js`) — the agent's door.
+ *    None ship in-tree today; reference/demo plugins live in the companion
+ *    `hermes-example-plugins` repo.
+ *  - RUNTIME: the on-disk door (`<hermes home>/desktop-plugins/<name>/plugin.js`)
+ *    — the agent's/user's door, watched + hot-reloaded by the runtime loader.
  */
-
- 
-import helloRuntimeSource from '../plugins/hello-runtime/plugin.runtime.js?raw'
 
 import { createPluginContext, type HermesPlugin } from './plugin'
 import { pluginActive, publishPlugin } from './plugins-store'
-import { loadRuntimePlugin, watchRuntimePlugins } from './runtime-loader'
+import { watchRuntimePlugins } from './runtime-loader'
 
 const modules = import.meta.glob<{ default: HermesPlugin }>('../plugins/*/plugin.{ts,tsx}', { eager: true })
 
 // One-shot init guard. Contributions themselves register by id (re-registering
-// is idempotent), but the runtime watcher setup below (watchRuntimePlugins, the
-// hello-runtime load) must NOT run twice — so discovery is guarded to a single
-// pass rather than re-run on HMR.
+// is idempotent), but the disk-door watcher setup below (watchRuntimePlugins)
+// must NOT run twice — so discovery is guarded to a single pass, not re-run on
+// HMR.
 let loaded = false
 
 export function discoverBundledPlugins(): void {
@@ -70,8 +68,7 @@ export function discoverBundledPlugins(): void {
     }
   }
 
-  // The runtime pipeline, dogfooded on every boot + the SELF-MAINTAINING
-  // disk door (fs-watched hot reloads, slow folder reconciliation).
-  void loadRuntimePlugin(helloRuntimeSource, 'hello-runtime', { kind: 'runtime' })
+  // The SELF-MAINTAINING disk door (fs-watched hot reloads, slow folder
+  // reconciliation) — the runtime loader pipeline's real, shipping consumer.
   watchRuntimePlugins()
 }

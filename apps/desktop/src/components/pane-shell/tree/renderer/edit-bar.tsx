@@ -9,6 +9,7 @@ import { useStore } from '@nanostores/react'
 import { type PointerEvent as ReactPointerEvent, useCallback, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { useI18n } from '@/i18n'
 import { formatCombo } from '@/lib/keybinds/combo'
 import { $bindings, bindingsFor } from '@/store/keybinds'
 
@@ -21,6 +22,7 @@ import { LayoutPicker } from './layout-picker'
 let lastPalettePos: { x: number; y: number } | null = null
 
 export function TreeEditBar() {
+  const { t } = useI18n()
   const editMode = useStore($layoutEditMode)
   const bindings = useStore($bindings)
   const [pos, setPos] = useState(lastPalettePos)
@@ -84,9 +86,9 @@ export function TreeEditBar() {
         onPointerDown={startMove}
       >
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-foreground">Layouts</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t.zones.editTitle}</h2>
           <p className="text-xs text-muted-foreground/80">
-            Pick a layout, or drag panes between zones. Right-click a zone to split.{' '}
+            {t.zones.editHint}{' '}
             {toggleCombo && (
               <kbd className="rounded border border-(--ui-stroke-secondary) bg-foreground/5 px-1 font-mono text-[10px]">
                 {formatCombo(toggleCombo)}
@@ -96,10 +98,10 @@ export function TreeEditBar() {
         </div>
         <div className="flex shrink-0 items-center gap-1.5" onPointerDown={e => e.stopPropagation()}>
           <Button onClick={resetLayoutTree} size="sm" variant="ghost">
-            Reset
+            {t.zones.reset}
           </Button>
           <Button onClick={() => $layoutEditMode.set(false)} size="sm" variant="outline">
-            Done
+            {t.common.done}
           </Button>
         </div>
       </header>

@@ -1,9 +1,8 @@
 import { useEffect, useRef } from 'react'
 
-import { isFocusWithin } from '@/lib/keybinds/combo'
+import { closeActiveTab } from '@/app/chat/close-tab'
 import { storedSessionIdForNotification } from '@/lib/session-ids'
 import { respondToApprovalAction } from '@/store/native-notifications'
-import { $filePreviewTarget, $previewTarget, closeActiveRightRailTab } from '@/store/preview'
 import {
   getRememberedRoute,
   getRememberedSessionId,
@@ -15,7 +14,6 @@ import { openUpdatesWindow, startUpdatePoller, stopUpdatePoller } from '@/store/
 import { isSecondaryWindow } from '@/store/windows'
 
 import { requestComposerFocus, requestComposerInsert } from '../../chat/composer/focus'
-import { closeActiveTerminal } from '../../right-sidebar/terminal/terminals'
 import { appViewForPath, isOverlayView, NEW_CHAT_ROUTE, sessionRoute } from '../../routes'
 
 interface DesktopIntegrationsParams {
@@ -37,8 +35,6 @@ interface DesktopIntegrationsParams {
  * "talks to the desktop shell" surface reads as one unit.
  */
 export function useDesktopIntegrations({
-  chatOpen,
-  hasPreview,
   locationPathname,
   navigate,
   refreshSessions,
@@ -59,10 +55,12 @@ export function useDesktopIntegrations({
     }
   }, [])
 
-  // Main-process preview shortcut (⌘W menu item enablement).
+  // The renderer OWNS ⌘W: on macOS the native menu accelerator would else
+  // close the window, so claim it unconditionally — the menu then routes ⌘W
+  // to us (close-preview-requested IPC) and we decide tab-vs-window.
   useEffect(() => {
-    window.hermesDesktop?.setPreviewShortcutActive?.(Boolean(chatOpen && hasPreview))
-  }, [chatOpen, hasPreview])
+    window.hermesDesktop?.setPreviewShortcutActive?.(true)
+  }, [])
 
   // Remember the open chat (session id for notifications/resume) AND the last
   // non-overlay route (a page like /skills, or a session route) so a relaunch
@@ -157,38 +155,14 @@ export function useDesktopIntegrations({
     return () => unsubscribe?.()
   }, [])
 
-  // ⌘W: close the focused terminal, else the active preview tab.
+  // ⌘W via the macOS menu accelerator → close the focused tab; if nothing is
+  // closeable, fall back to closing the window (so ⌘W still works as the
+  // OS-standard window close, esp. secondary windows). The Win/Linux keyboard
+  // path is the `view.closeTab` keybind (use-keybinds), sharing closeActiveTab.
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.altKey || event.shiftKey || event.key.toLowerCase() !== 'w' || (!event.metaKey && !event.ctrlKey)) {
-        return
-      }
+    const unsubscribe = window.hermesDesktop?.onClosePreviewRequested?.(() => void closeActiveTab())
 
-      if (isFocusWithin('[data-terminal]')) {
-        if (event.metaKey && !event.ctrlKey) {
-          event.preventDefault()
-          event.stopPropagation()
-          closeActiveTerminal()
-        }
-
-        return
-      }
-
-      if ($filePreviewTarget.get() || $previewTarget.get()) {
-        event.preventDefault()
-        event.stopPropagation()
-        closeActiveRightRailTab()
-      }
-    }
-
-    const unsubscribe = window.hermesDesktop?.onClosePreviewRequested?.(closeActiveRightRailTab)
-
-    window.addEventListener('keydown', onKeyDown, { capture: true })
-
-    return () => {
-      unsubscribe?.()
-      window.removeEventListener('keydown', onKeyDown, { capture: true })
-    }
+    return () => unsubscribe?.()
   }, [])
 
   // Another window mutated the shared session list -> re-pull the sidebar.

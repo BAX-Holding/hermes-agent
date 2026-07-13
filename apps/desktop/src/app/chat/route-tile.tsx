@@ -28,9 +28,23 @@ const BUILTIN_PAGES: Record<string, { render: () => ReactNode; title: string }> 
   [SKILLS_ROUTE]: { render: () => <SkillsView />, title: 'Capabilities' }
 }
 
-/** Title for a route tile: the built-in name, else the plugin route's own. */
+/** Humanize a route path into a tab title: `/my-atlas` → `My Atlas`. */
+const humanizePath = (path: string): string =>
+  path
+    .replace(/^\/+/, '')
+    .split(/[/-]/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ') || path
+
+/** Title for a route tile: the built-in name, the contribution's own `title`,
+ *  else a humanized path — never the internal `${source}:${id}` key. */
 function routeTitle(path: string): string {
-  return BUILTIN_PAGES[path]?.title ?? contributedRoutes().find(r => r.path === path)?.key ?? path
+  if (BUILTIN_PAGES[path]) {
+    return BUILTIN_PAGES[path].title
+  }
+
+  return contributedRoutes().find(r => r.path === path)?.title ?? humanizePath(path)
 }
 
 function RouteTilePane({ path }: { path: string }) {

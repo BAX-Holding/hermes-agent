@@ -13,6 +13,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { Input } from '@/components/ui/input'
 import { useContributions } from '@/contrib/react/use-contributions'
 import type { Contribution } from '@/contrib/types'
+import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 import type { LayoutNode } from '../model'
@@ -59,6 +60,7 @@ function PickerSectionLabel({ children }: { children: ReactNode }) {
 }
 
 function PresetCard({ preset }: { preset: Contribution }) {
+  const { t } = useI18n()
   const activeId = useStore($activePresetId)
   const tree = isLayoutNode(preset.data) ? preset.data : null
 
@@ -91,7 +93,7 @@ function PresetCard({ preset }: { preset: Contribution }) {
       </button>
       {isUserPreset(preset.id) && (
         <button
-          aria-label={`Delete ${preset.title ?? preset.id}`}
+          aria-label={t.zones.deletePreset(preset.title ?? preset.id)}
           // Hover-reveal (opacity, not display) — stays laid out + clickable,
           // appears on card hover or keyboard focus.
           className="absolute right-1 top-1 z-10 grid size-5 place-items-center rounded-md bg-(--ui-bg-elevated) text-(--ui-text-tertiary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground focus-visible:opacity-100 group-hover/preset:opacity-100"
@@ -107,6 +109,7 @@ function PresetCard({ preset }: { preset: Contribution }) {
 }
 
 export function LayoutPicker() {
+  const { t } = useI18n()
   const presets = useContributions(LAYOUTS_AREA)
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
@@ -127,7 +130,7 @@ export function LayoutPicker() {
   return (
     <div className="flex flex-col gap-4">
       <section className="flex flex-col gap-2">
-        <PickerSectionLabel>Templates</PickerSectionLabel>
+        <PickerSectionLabel>{t.zones.templates}</PickerSectionLabel>
         <div className="grid grid-cols-4 gap-2">
           {templates.map(preset => (
             <PresetCard key={`${preset.source ?? 'core'}:${preset.id}`} preset={preset} />
@@ -136,7 +139,7 @@ export function LayoutPicker() {
       </section>
 
       <section className="flex flex-col gap-2">
-        <PickerSectionLabel>Custom</PickerSectionLabel>
+        <PickerSectionLabel>{t.zones.custom}</PickerSectionLabel>
         {custom.length > 0 && (
           <div className="grid grid-cols-4 gap-2">
             {custom.map(preset => (
@@ -151,7 +154,7 @@ export function LayoutPicker() {
           variant="ghost"
         >
           <Codicon name="add" size="0.875rem" />
-          New grid layout
+          {t.zones.newGridLayout}
         </Button>
       </section>
 
@@ -175,14 +178,14 @@ export function LayoutPicker() {
                 setName('')
               }
             }}
-            placeholder="Name this layout…"
+            placeholder={t.zones.nameLayoutPlaceholder}
             value={name}
           />
           <Button disabled={!name.trim()} size="sm" type="submit" variant="outline">
-            Save
+            {t.common.save}
           </Button>
           <Button onClick={() => setSaving(false)} size="sm" variant="ghost">
-            Cancel
+            {t.common.cancel}
           </Button>
         </form>
       ) : (
@@ -192,7 +195,7 @@ export function LayoutPicker() {
           type="button"
         >
           <Codicon name="save" size="0.8125rem" />
-          Save current arrangement as a template
+          {t.zones.saveCurrentAs}
         </button>
       )}
     </div>

@@ -6,7 +6,7 @@ import { StatusbarControls } from '../shell/statusbar-controls'
 
 import type { WiringApi } from './types'
 
-/** The controller publishes its five wired surfaces here; every registered pane
+/** The controller publishes its wired surfaces here; every registered pane
  *  / chrome slot reads one back through `WiredPane`. */
 export const ContribWiringContext = createContext<WiringApi | null>(null)
 
@@ -23,10 +23,6 @@ export const WiredPane = memo(function WiredPane({ part }: { part: keyof WiringA
   if (!api) {
     if (part === 'statusbar') {
       return <StatusbarControls items={[]} leftItems={[]} />
-    }
-
-    if (part === 'sessionTitle') {
-      return null
     }
 
     return (

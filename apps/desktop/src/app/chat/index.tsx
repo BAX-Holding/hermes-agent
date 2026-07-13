@@ -7,10 +7,12 @@ import { useLocation } from 'react-router-dom'
 
 import { Thread } from '@/components/assistant-ui/thread'
 import { Backdrop } from '@/components/Backdrop'
+import { COMPOSER_HEART_CONFIG, HeartField } from '@/components/chat/vibe-hearts'
+import { $sessionTileDragging, $sessionTileEdgeHover } from '@/components/pane-shell/tree/store'
 import { PromptOverlays } from '@/components/prompt-overlays'
 import { Button } from '@/components/ui/button'
-import { Codicon } from '@/components/ui/codicon'
 import { ErrorState } from '@/components/ui/error-state'
+import { TitleMenuTrigger } from '@/components/ui/title-menu-trigger'
 import { getGlobalModelOptions, type HermesGateway } from '@/hermes'
 import { useI18n } from '@/i18n'
 import type { ChatMessage } from '@/lib/chat-messages'
@@ -19,6 +21,8 @@ import { useIncrementalExternalStoreRuntime } from '@/lib/incremental-external-s
 import { cn } from '@/lib/utils'
 import type { ComposerAttachment } from '@/store/composer'
 import { $pinnedSessionIds } from '@/store/layout'
+import { $petActive } from '@/store/pet'
+import { $petOverlayActive } from '@/store/pet-overlay'
 import { $gatewaySwapTarget } from '@/store/profile'
 import {
   $contextSuggestions,
@@ -40,12 +44,12 @@ import { titlebarHeaderBaseClass, titlebarHeaderShadowClass, titlebarHeaderTitle
 import { ChatDropOverlay } from './chat-drop-overlay'
 import { ChatSwapOverlay } from './chat-swap-overlay'
 import { ChatBar, ChatBarFallback } from './composer'
-import { requestComposerInsert, requestComposerInsertRefs } from './composer/focus'
-import { droppedFileInlineRefs, type SessionDragPayload, sessionInlineRef } from './composer/inline-refs'
+import { requestComposerInsert } from './composer/focus'
+import { droppedFileInlineRefs } from './composer/inline-refs'
 import { useComposerScope } from './composer/scope'
 import type { ChatBarState } from './composer/types'
 import { type DroppedFile, partitionDroppedFiles } from './hooks/use-composer-actions'
-import { useFileDropZone } from './hooks/use-file-drop-zone'
+import { type DragKind, useFileDropZone } from './hooks/use-file-drop-zone'
 import { useRuntimeMessageRepository } from './runtime-repository'
 import { ScrollToBottomButton } from './scroll-to-bottom-button'
 import { useSessionView } from './session-view'
@@ -140,14 +144,7 @@ function ChatHeader({
           sideOffset={8}
           title={title}
         >
-          <Button
-            className="pointer-events-auto flex h-6 min-w-0 max-w-full gap-1 overflow-hidden border border-transparent bg-transparent px-2 py-0 text-(--ui-text-secondary) hover:border-(--ui-stroke-tertiary) hover:bg-(--ui-control-hover-background) hover:text-foreground data-[state=open]:border-(--ui-stroke-tertiary) data-[state=open]:bg-(--ui-control-active-background) [-webkit-app-region:no-drag]"
-            type="button"
-            variant="ghost"
-          >
-            <h2 className="min-w-0 flex-1 truncate text-[0.75rem] font-medium leading-none">{title}</h2>
-            <Codicon className="shrink-0 text-(--ui-text-tertiary)" name="chevron-down" size="0.8125rem" />
-          </Button>
+          <TitleMenuTrigger>{title}</TitleMenuTrigger>
         </SessionActionsMenu>
       </div>
     </header>
@@ -243,12 +240,22 @@ export function ChatView({
   const composerScope = useComposerScope()
   const isPrimary = view.kind === 'primary'
   const activeSessionId = useStore(view.$runtimeId)
+  const storedId = useStore(view.$storedId)
+  // Dock anchor for a session drop onto this surface: the workspace pane for the
+  // primary, this tile's pane id for a tile. Read by the session-drop bridge.
+  const sessionAnchor = isPrimary ? 'workspace' : `session-tile:${storedId ?? ''}`
   const awaitingResponse = useStore(view.$awaitingResponse)
   const busy = useStore(view.$busy)
   const contextSuggestions = useStore($contextSuggestions)
+  // Per-session (SessionView) reads — a tile IS its session, so these come
+  // from the view slice, not the global atoms (which track the primary only).
   const currentCwd = useStore(view.$cwd)
   const currentModel = useStore(view.$model)
   const currentProvider = useStore(view.$provider)
+  // A pet anywhere (in-window or popped out) owns the hearts; composer only when none.
+  const petActive = useStore($petActive)
+  const petOverlayActive = useStore($petOverlayActive)
+  const petPresent = petActive || petOverlayActive
   const freshDraftReady = useStore($freshDraftReady)
   const gatewayState = useStore($gatewayState)
   const gatewaySwapTarget = useStore($gatewaySwapTarget)
@@ -378,16 +385,23 @@ export function ChatView({
     [composerScope.target, currentCwd, onAttachDroppedItems]
   )
 
-  // Dropping a sidebar session inserts an @session link the agent can resolve
-  // via session_search (carries the source profile, so cross-profile works).
-  const onDropSession = useCallback(
-    (session: SessionDragPayload) => {
-      requestComposerInsertRefs([sessionInlineRef(session)], { target: composerScope.target })
-    },
-    [composerScope.target]
-  )
+  // Session drags are POINTER drags (session-drag.ts) — never native DnD.
+  // The drop zone below only handles files; session drops commit through the
+  // drag session itself, which routes a center/link drop to this surface's
+  // composer via `data-composer-target`.
+  const { dragKind, dropHandlers } = useFileDropZone({ enabled: showChatBar, onDropFiles })
 
-  const { dragKind, dropHandlers } = useFileDropZone({ enabled: showChatBar, onDropFiles, onDropSession })
+  // While a session drag targets one of this surface's EDGES or a tab strip,
+  // the zone overlay/caret owns the visual — the link overlay stands down.
+  // It shows for the whole drag on every chat surface otherwise (the drag
+  // session's global sentinel, not a per-surface hover chain).
+  // COMPUTED booleans, never the raw `$dropHint`: the hint churns on every
+  // pointer-crossing of every drag (pane drags included), and a re-render
+  // here is the WHOLE surface — thread, composer, header — per mounted tile.
+  const sessionDragging = useStore($sessionTileDragging)
+  const sessionEdgeHover = useStore($sessionTileEdgeHover)
+
+  const overlayKind: DragKind = dragKind === 'files' ? 'files' : sessionDragging && !sessionEdgeHover ? 'session' : null
 
   return (
     <div
@@ -395,6 +409,8 @@ export function ChatView({
         'relative isolate flex h-full min-w-0 flex-col overflow-hidden bg-(--ui-chat-surface-background)',
         className
       )}
+      data-composer-target={composerScope.target}
+      data-session-anchor={sessionAnchor}
     >
       <Backdrop />
       {/* Tiles get their chrome from the layout zone (chip strip); the modal
@@ -409,7 +425,10 @@ export function ChatView({
         />
       )}
 
-      {isPrimary && <PromptOverlays />}
+      {/* Mounted for the primary AND every tile, each scoped to its own session
+          so a tiled/background session's blocking prompt surfaces instead of
+          stalling to timeout. */}
+      <PromptOverlays sessionId={activeSessionId} />
 
       <ChatRuntimeBoundary
         busy={busy}
@@ -453,7 +472,21 @@ export function ChatView({
             </div>
           )}
           {showChatBar && <ScrollToBottomButton />}
-          <ChatDropOverlay kind={dragKind} />
+          {/* Vibe hearts rise from the composer only when no pet is out (else
+              they play on the pet). Fired by the core `reaction` event. */}
+          {!petPresent && (
+            <HeartField
+              className="absolute inset-x-0 z-30"
+              config={COMPOSER_HEART_CONFIG}
+              style={{
+                top: 0,
+                bottom: 'calc(var(--composer-measured-height) + var(--status-stack-measured-height) + 0.25rem)'
+              }}
+            />
+          )}
+          {/* A session drag hovering an EDGE hands the visual to the zone
+              target; the link overlay shows only for the center region. */}
+          <ChatDropOverlay kind={overlayKind} />
           <ChatSwapOverlay profile={gatewaySwapTarget} />
         </div>
         {/* Composer renders OUTSIDE the contain:[layout paint] wrapper above:

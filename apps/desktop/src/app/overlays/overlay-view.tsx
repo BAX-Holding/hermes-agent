@@ -4,6 +4,7 @@ import { TITLEBAR_HEIGHT } from '@/app/shell/titlebar'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { translateNow } from '@/i18n'
+import { ESCAPE_PRIORITY, isTopEscapeLayer, pushEscapeLayer } from '@/lib/escape-layers'
 import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
 
@@ -33,8 +34,10 @@ export function OverlayView({
   // stop propagation themselves, so opening (e.g.) the model picker inside
   // Settings still closes the picker first instead of the underlying overlay.
   useEffect(() => {
+    const releaseLayer = pushEscapeLayer(ESCAPE_PRIORITY.overlay)
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) {
+      if (event.key !== 'Escape' || event.defaultPrevented || !isTopEscapeLayer(ESCAPE_PRIORITY.overlay)) {
         return
       }
 
@@ -45,7 +48,10 @@ export function OverlayView({
 
     window.addEventListener('keydown', onKeyDown)
 
-    return () => window.removeEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      releaseLayer()
+    }
   }, [onClose])
 
   return (

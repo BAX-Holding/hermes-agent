@@ -96,6 +96,7 @@ import {
   sessionPinId,
   setCurrentCwd
 } from '@/store/session'
+import type { SplitDir } from '@/store/session-states'
 
 import {
   type AppView,
@@ -219,6 +220,8 @@ interface ChatSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onArchiveSession: (sessionId: string) => void
   onBranchSession: (sessionId: string) => void
   onNewSessionInWorkspace: (path: null | string) => void
+  /** Create a brand-new session and open it as a tile on `dir`. */
+  onNewSessionSplit: (dir: SplitDir) => void
   onManageCronJob: (jobId: string) => void
   onTriggerCronJob: (jobId: string) => void
 }
@@ -234,6 +237,7 @@ export function ChatSidebar({
   onArchiveSession,
   onBranchSession,
   onNewSessionInWorkspace,
+  onNewSessionSplit,
   onManageCronJob,
   onTriggerCronJob
 }: ChatSidebarProps) {
@@ -1133,18 +1137,24 @@ export function ChatSidebar({
                     </SidebarMenuButton>
                 )
 
-                // Route-backed rows (pages) can open in a split — right-click
-                // for the directional "Open in split" submenu.
+                // New session + route-backed pages can open in a split —
+                // right-click for the directional "Open in split" submenu.
                 return (
                   <SidebarMenuItem key={item.id}>
-                    {item.route ? (
+                    {isNewSession || item.route ? (
                       <ContextMenu>
                         <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
                         <ContextMenuContent aria-label={s.nav[item.id] ?? item.label}>
                           <SplitSubmenu
                             kit={CONTEXT_SPLIT_KIT}
                             label={s.row.openInSplit}
-                            onSplit={dir => item.route && openRouteTile(item.route, dir)}
+                            onSplit={dir => {
+                              if (isNewSession) {
+                                onNewSessionSplit(dir)
+                              } else if (item.route) {
+                                openRouteTile(item.route, dir)
+                              }
+                            }}
                           />
                         </ContextMenuContent>
                       </ContextMenu>

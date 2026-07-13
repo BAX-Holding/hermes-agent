@@ -7,6 +7,8 @@
  * live pane contributions; the React split renderer reads it per render.
  */
 
+import type * as React from 'react'
+
 import type { Contribution } from '@/contrib/types'
 
 import type { GroupNode, LayoutNode } from '../model'
@@ -40,6 +42,14 @@ interface PaneChrome {
   /** No Close in the tab menu — the one surface the app can't lose (the
    *  main workspace). Session tiles share `placement: 'main'` but close. */
   uncloseable?: boolean
+  /** Wrap this pane's TAB (e.g. in a domain context menu — a session tile's
+   *  pin/branch/rename/archive/delete). The wrapper must render `tab` as its
+   *  interactive child; the zone's own strip menu still owns non-tab space. */
+  tabWrap?: (tab: React.ReactElement) => React.ReactNode
+  /** Suppress the zone header while THIS pane is active — full-page views
+   *  (artifacts/skills/plugin pages) are not tab-able surfaces. The flag is
+   *  live: the workspace contribution re-registers it on route changes. */
+  headerVeto?: boolean
 }
 
 export const paneChrome = (c: Contribution | undefined) => (c?.data ?? {}) as PaneChrome
@@ -85,21 +95,26 @@ export interface TrackContext {
   overrides: Record<string, { widthOverride?: number; heightOverride?: number }>
 }
 
-/** The zone's visible active pane (render-side fallback like TreeGroup). */
-export function activeShownPane(group: GroupNode, ctx: TrackContext): string | null {
-  if (!ctx.paneGone(group.active)) {
-    return group.active
-  }
+/** A group's panes that are actually on screen (not hidden / narrow-collapsed
+ *  / unregistered). The one place the "shown" filter lives. */
+export const shownPaneIds = (group: GroupNode, ctx: TrackContext): string[] =>
+  group.panes.filter(id => !ctx.paneGone(id))
 
-  return group.panes.find(id => !ctx.paneGone(id)) ?? null
+/** max() of the defined CSS lengths (deduped); undefined when none — the
+ *  largest-tenant basis a fixed stack and its clamps both size from. */
+export const cssMax = (values: (string | null | undefined)[]): string | undefined => {
+  const unique = [...new Set(values.filter((v): v is string => Boolean(v)))]
+
+  return unique.length === 0 ? undefined : unique.length === 1 ? unique[0] : `max(${unique.join(', ')})`
 }
 
 /**
  * THE TRACK MODEL. A node's size along `axis` is FIXED when it resolves to a
  * CSS length, and FLEX (weight-shared leftover) when null:
  *
- *  - zone: its active pane's declared `width`/`height` (a live px override
- *    from a sash drag wins) — sidebars keep their size, main flexes.
+ *  - zone: the max() of its shown panes' declared `width`/`height` (a live px
+ *    override from a sash drag wins) — sidebars keep their size, main flexes,
+ *    and the zone never resizes when tabs switch or a drop fronts a pane.
  *  - split ALONG the axis: the sum of its visible children — fixed only when
  *    every child is (one flex child makes the run flex).
  *  - split ACROSS the axis: the max of its visible fixed children (flex
@@ -109,8 +124,19 @@ export function activeShownPane(group: GroupNode, ctx: TrackContext): string | n
  * content (237px, or 474px when review is visible) instead of taking a
  * fraction of the window.
  */
+/** A minimized zone IS its strip: the vertical rail (row) / header (column)
+ *  are both 28px thick. */
+export const MINIMIZED_TRACK = '1.75rem'
+
 export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: TrackContext): string | null {
   if (node.type === 'group') {
+    // Ancestor splits must size a minimized zone as its strip, not as its
+    // panes' declared widths — otherwise the outer track keeps reserving the
+    // full sidebar width and the collapsed rail floats in a dead column.
+    if (node.minimized) {
+      return MINIMIZED_TRACK
+    }
+
     const overrideKey = axis === 'row' ? 'widthOverride' : 'heightOverride'
 
     const declared = (id: string) => {
@@ -130,18 +156,30 @@ export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: Tr
       return css
     }
 
-    // A zone is a fixed track only when EVERY shown pane sizes itself along
-    // the axis (a pure sidebar stack). Mixing a sidebar pane into a flex
-    // zone (files fronted in the Focus mono-stack) must NOT snap the whole
-    // zone to sidebar width — the flex pane keeps the zone flex.
-    const shown = node.panes.filter(id => !ctx.paneGone(id))
-    const active = activeShownPane(node, ctx)
+    // Which zones are FIXED tracks:
+    //  - a MAIN-bearing zone (workspace/tile stacked in) is flex-at-heart —
+    //    mixing a sidebar pane into it (files fronted in the Focus mono-stack)
+    //    must NOT snap the whole zone to sidebar width;
+    //  - any other zone stays fixed as long as SOME tenant declares a size —
+    //    dropping a size-less pane (the terminal has height but no width)
+    //    into the 237px files sidebar must not balloon it to a flex track.
+    const ids = shownPaneIds(node, ctx)
+    const sizes = ids.map(declared)
+    const declaredSizes = sizes.filter((size): size is string => size !== null)
 
-    if (!active || !shown.every(id => declared(id) !== null)) {
+    if (declaredSizes.length === 0) {
       return null
     }
 
-    return declared(active)
+    if (sizes.length !== declaredSizes.length && ids.some(id => paneChrome(ctx.paneFor(id)).placement === 'main')) {
+      return null
+    }
+
+    // A STACK sizes to its LARGEST tenant (CSS max()), never the active tab:
+    // dropping a pane into a zone — the drop fronts it — or switching tabs
+    // must not resize the container (dropping sessions into a wider fixed
+    // zone used to snap the whole zone down to sidebar width).
+    return cssMax(declaredSizes) ?? null
   }
 
   const visible = node.children.filter(child => !subtreeGone(child, ctx))
@@ -155,13 +193,8 @@ export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: Tr
     return sizes.length === 1 ? sizes[0] : `calc(${sizes.join(' + ')})`
   }
 
-  const fixed = sizes.filter((size): size is string => size !== null)
-
-  if (fixed.length === 0) {
-    return null
-  }
-
-  return fixed.length === 1 ? fixed[0] : `max(${fixed.join(', ')})`
+  // Across the axis a flex child just stretches; the fixed ones set the size.
+  return cssMax(sizes) ?? null
 }
 
 /** True when every pane in the subtree is hidden/narrow-collapsed. */

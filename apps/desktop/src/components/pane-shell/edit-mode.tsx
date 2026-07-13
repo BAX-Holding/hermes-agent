@@ -9,6 +9,8 @@
 import { atom } from 'nanostores'
 import { useEffect } from 'react'
 
+import { ESCAPE_PRIORITY, isTopEscapeLayer, pushEscapeLayer } from '@/lib/escape-layers'
+
 export const $layoutEditMode = atom(false)
 
 export function toggleLayoutEditMode() {
@@ -22,8 +24,25 @@ export function useLayoutEditHotkey(enabled: boolean) {
       return
     }
 
+    // Own an Escape layer only WHILE edit mode is on, so it doesn't outrank the
+    // narrow-pane reveal the rest of the time.
+    let releaseLayer: (() => void) | null = null
+
+    const unsub = $layoutEditMode.subscribe(on => {
+      if (on && !releaseLayer) {
+        releaseLayer = pushEscapeLayer(ESCAPE_PRIORITY.layoutEdit)
+      } else if (!on && releaseLayer) {
+        releaseLayer()
+        releaseLayer = null
+      }
+    })
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && $layoutEditMode.get()) {
+      if (e.key !== 'Escape' || e.defaultPrevented || !isTopEscapeLayer(ESCAPE_PRIORITY.layoutEdit)) {
+        return
+      }
+
+      if ($layoutEditMode.get()) {
         e.preventDefault()
         $layoutEditMode.set(false)
       }
@@ -31,6 +50,10 @@ export function useLayoutEditHotkey(enabled: boolean) {
 
     window.addEventListener('keydown', onKeyDown)
 
-    return () => window.removeEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      unsub()
+      releaseLayer?.()
+    }
   }, [enabled])
 }

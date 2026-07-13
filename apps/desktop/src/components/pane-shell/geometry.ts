@@ -4,10 +4,16 @@
  * top-right) are a rectangle in viewport pixels. Any region whose rect
  * intersects it must reserve that space and expose a drag strip. One
  * `intersect()` call replaces per-layout inset special cases.
+ *
+ * Also publishes the WORKSPACE zone's edges as CSS vars (see
+ * publishWorkspaceGeometry) — chrome that aligns to the main pane (titlebar
+ * title et al) consumes `var(--workspace-left/right)` in plain CSS instead of
+ * threading rects through React.
  */
 
 import { type RefObject, useLayoutEffect, useState, useSyncExternalStore } from 'react'
 
+import { $layoutTree } from '@/components/pane-shell/tree/store'
 import { $connection } from '@/store/session'
 
 // ---------------------------------------------------------------------------
@@ -142,6 +148,80 @@ function sameRect(a: Rect | null, b: Rect | null) {
   if (!a || !b) {return false}
 
   return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
+
+// ---------------------------------------------------------------------------
+// Workspace-edge CSS vars
+// ---------------------------------------------------------------------------
+
+/**
+ * Publish the workspace zone's viewport edges as root CSS vars:
+ *   --workspace-left  : px from the viewport's left to the main zone
+ *   --workspace-right : px from the main zone's right to the viewport's right
+ *
+ * Measured once per relevant change (zone resize via ResizeObserver, layout
+ * mutations via $layoutTree, window resize) and consumed in plain CSS — the
+ * measured-var idiom (--composer-measured-height), not per-component JS
+ * geometry. Call once from the tree root; returns the disposer.
+ */
+export function publishWorkspaceGeometry(): () => void {
+  const root = document.documentElement
+  let el: HTMLElement | null = null
+  let lastLeft = NaN
+  let lastRight = NaN
+
+  const ro = new ResizeObserver(() => measure())
+
+  const measure = () => {
+    const next = document.querySelector<HTMLElement>('[data-session-anchor="workspace"]')
+
+    if (next !== el) {
+      if (el) {
+        ro.unobserve(el)
+      }
+
+      el = next
+
+      if (el) {
+        ro.observe(el)
+      }
+    }
+
+    if (!el) {
+      return
+    }
+
+    const r = el.getBoundingClientRect()
+    const left = Math.round(r.left)
+    const right = Math.round(window.innerWidth - r.right)
+
+    // Skip unchanged writes: a sash drag fires the RO every frame, and each
+    // :root custom-property set dirties style for everything that reads them.
+    if (left !== lastLeft) {
+      lastLeft = left
+      root.style.setProperty('--workspace-left', `${left}px`)
+    }
+
+    if (right !== lastRight) {
+      lastRight = right
+      root.style.setProperty('--workspace-right', `${right}px`)
+    }
+  }
+
+  // Tree mutations move zones without resizing them (⌘\ flip) — re-measure a
+  // frame later, after the DOM committed. RO covers width changes (sash drags,
+  // side collapses); window resize covers the rest.
+  const unsubTree = $layoutTree.listen(() => requestAnimationFrame(measure))
+  window.addEventListener('resize', measure)
+  measure()
+
+  return () => {
+    unsubTree()
+    window.removeEventListener('resize', measure)
+    ro.disconnect()
+    root.style.removeProperty('--workspace-left')
+    root.style.removeProperty('--workspace-right')
+  }
 }
 
 /**

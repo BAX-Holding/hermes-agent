@@ -661,7 +661,7 @@ export function ChatBar({
     useComposerBranch({ clearDraft, cwd, draftRef })
 
   // Global Esc-to-cancel when the chat (not the composer input) has focus.
-  useComposerEscCancel({ awaitingInput, busy, onCancel })
+  useComposerEscCancel({ awaitingInput, busy, onCancel, target: scope.target })
 
   const {
     conversation,
@@ -681,7 +681,8 @@ export function ChatBar({
     maxRecordingSeconds,
     onSubmit,
     onTranscribeAudio,
-    sessionId
+    sessionId,
+    target: scope.target
   })
 
   const contextMenu = (

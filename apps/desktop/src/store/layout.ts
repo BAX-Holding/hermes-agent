@@ -1,5 +1,8 @@
 import { atom, computed, type ReadableAtom, type WritableAtom } from 'nanostores'
 
+import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from '@/app/layout-constants'
+import { PANE_TOGGLE_REVEAL_EVENT } from '@/components/pane-shell'
+import { matchesQuery } from '@/hooks/use-media-query'
 import { Codecs, persistentAtom } from '@/lib/persisted'
 import { arraysEqual, insertUniqueId } from '@/lib/storage'
 
@@ -178,20 +181,41 @@ export function setSidebarWidth(width: number) {
   setPaneWidthOverride(CHAT_SIDEBAR_PANE_ID, bounded)
 }
 
+// Below the collapse breakpoint a collapsible rail leaves the grid and lives as
+// a hover/pin overlay, so open/toggle must route through the reveal event — the
+// docked `open` flag renders a 0px track invisibly. Centralised here so every
+// caller (titlebar, keybinds, session-search, reveal-file) inherits it instead
+// of re-deriving the narrow branch. Returns true when it handled the intent.
+function revealNarrowPane(id: string, mode: 'close' | 'open' | 'toggle'): boolean {
+  if (typeof window === 'undefined' || !matchesQuery(SIDEBAR_COLLAPSE_MEDIA_QUERY)) {
+    return false
+  }
+
+  window.dispatchEvent(new CustomEvent(PANE_TOGGLE_REVEAL_EVENT, { detail: { id, mode } }))
+
+  return true
+}
+
 export function setSidebarOpen(open: boolean) {
   setPaneOpen(CHAT_SIDEBAR_PANE_ID, open)
+  revealNarrowPane(CHAT_SIDEBAR_PANE_ID, open ? 'open' : 'close')
 }
 
 export function toggleSidebarOpen() {
-  togglePane(CHAT_SIDEBAR_PANE_ID)
+  if (!revealNarrowPane(CHAT_SIDEBAR_PANE_ID, 'toggle')) {
+    togglePane(CHAT_SIDEBAR_PANE_ID)
+  }
 }
 
 export function toggleFileBrowserOpen() {
-  togglePane(FILE_BROWSER_PANE_ID)
+  if (!revealNarrowPane(FILE_BROWSER_PANE_ID, 'toggle')) {
+    togglePane(FILE_BROWSER_PANE_ID)
+  }
 }
 
 export function setFileBrowserOpen(open: boolean) {
   setPaneOpen(FILE_BROWSER_PANE_ID, open)
+  revealNarrowPane(FILE_BROWSER_PANE_ID, open ? 'open' : 'close')
 }
 
 // "Reveal this file in the file-browser tree" — an absolute path the tree

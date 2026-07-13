@@ -7,11 +7,11 @@
  */
 
 import type { ReadableAtom } from 'nanostores'
-import type { ReactNode } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 
-import { registerPaneCloser, removeTreePane } from '@/components/pane-shell/tree/store'
+import { registerPaneCloser, removeTreePane, treePanesWithPrefix } from '@/components/pane-shell/tree/store'
 import { registry } from '@/contrib/registry'
-import type { SplitDir } from '@/store/session-states'
+import type { TileDock } from '@/store/session-states'
 
 export interface PaneMirror<T> {
   /** Reactive source list. */
@@ -22,11 +22,17 @@ export interface PaneMirror<T> {
   key: (tile: T) => string
   /** Pane-id namespace — the id is `${prefix}:${key}`. */
   prefix: string
-  /** Edge to dock against main on adoption (default right). */
-  dir?: (tile: T) => SplitDir | undefined
+  /** Dock on adoption (default right; `center` = stack into anchor's zone). */
+  dir?: (tile: T) => TileDock | undefined
+  /** Pane to dock against (default `workspace`) — a drop's target zone. */
+  anchor?: (tile: T) => string | undefined
+  /** Center docks: the strip slot (stack before this pane id). */
+  before?: (tile: T) => null | string | undefined
   minWidth: string
   title: (key: string) => string
   render: (key: string) => ReactNode
+  /** Wrap the tile's TAB (domain context menu — session verbs). */
+  tabWrap?: (key: string, tab: ReactElement) => ReactNode
   /** Wired as the pane's closer (tab Close). */
   close: (key: string) => void
 }
@@ -55,7 +61,12 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
         id: paneId(key),
         area: 'panes',
         title,
-        data: { dock: { pane: 'workspace', pos: cfg.dir?.(tile) ?? 'right' }, minWidth: cfg.minWidth, placement: 'main' },
+        data: {
+          dock: { before: cfg.before?.(tile), pane: cfg.anchor?.(tile) ?? 'workspace', pos: cfg.dir?.(tile) ?? 'right' },
+          minWidth: cfg.minWidth,
+          placement: 'main',
+          tabWrap: cfg.tabWrap ? (tab: ReactElement) => cfg.tabWrap!(key, tab) : undefined
+        },
         render: () => cfg.render(key)
       })
 
@@ -71,6 +82,16 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
         entry.dispose()
         registered.delete(key)
         removeTreePane(paneId(key))
+      }
+    }
+
+    // Prune tree panes the SHARED tree persisted for a tile we never registered
+    // this session and that isn't wanted now — a profile switch reloads with the
+    // other profile's tile panes still stacked in. (`registered` is empty after a
+    // reload, so the loop above can't catch these.)
+    for (const id of treePanesWithPrefix(`${cfg.prefix}:`)) {
+      if (!wanted.has(id.slice(cfg.prefix.length + 1))) {
+        removeTreePane(id)
       }
     }
   }

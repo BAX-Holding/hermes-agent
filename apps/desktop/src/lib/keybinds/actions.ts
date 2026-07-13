@@ -73,6 +73,7 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
 
   // ── Session ──────────────────────────────────────────────────────────────
   { id: 'session.new', category: 'session', defaults: ['mod+n', 'shift+n'] },
+  { id: 'session.newTab', category: 'session', defaults: ['mod+t'] },
   { id: 'session.newWindow', category: 'session', defaults: ['mod+shift+n'] },
   // ⌃Tab / ⌃⇧Tab — the universal tab-cycle chord. Literally Control, not Cmd
   // (macOS reserves Cmd+Tab for app switching); see `ctrl` in combo.ts.
@@ -115,6 +116,11 @@ export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
   { id: 'view.closeTerminal', category: 'view', defaults: ['ctrl+shift+w'] },
   // ⌘\ — the backslash reads like a mirror line flipping the layout.
   { id: 'view.flipPanes', category: 'view', defaults: ['mod+\\'] },
+  // ⌘W closes the focused zone's active tab — its own tab strip (preview) or
+  // the tree tab (session tiles, files, terminal). The uncloseable workspace
+  // is a no-op. ⌘⇧T reopens the last closed tab where it was.
+  { id: 'view.closeTab', category: 'view', defaults: ['mod+w'] },
+  { id: 'view.reopenTab', category: 'view', defaults: ['mod+shift+t'] },
   { id: 'appearance.toggleMode', category: 'view', defaults: ['shift+x'] },
   { id: 'keybinds.openPanel', category: 'view', defaults: ['mod+/'] }
 ]
@@ -198,6 +204,5 @@ export const KEYBIND_READONLY: readonly KeybindReadonly[] = [
   { id: 'composer.history', category: 'composer', keys: ['up', 'down'] },
   { id: 'composer.cancel', category: 'composer', keys: ['escape'] },
   // Fixed, context-local shortcuts surfaced for discoverability.
-  { id: 'view.terminalSelection', category: 'view', keys: ['mod+l'] },
-  { id: 'view.closePreviewTab', category: 'view', keys: ['mod+w'] }
+  { id: 'view.terminalSelection', category: 'view', keys: ['mod+l'] }
 ]

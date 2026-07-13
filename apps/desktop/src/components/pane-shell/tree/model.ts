@@ -134,12 +134,11 @@ export function normalize(node: LayoutNode): LayoutNode | null {
     }
 
     const active = node.panes.includes(node.active) ? node.active : node.panes[0]
-    // A header override only means something on a STACK. A zone at (or down
-    // to) one pane returns to the contextual default — header hidden — so no
-    // structural change ever leaves a stale lone-pane tab behind. (Double-
-    // click reveal is an attribute edit, not structural; it survives until
-    // the next move/split/merge.)
-    const headerHidden = node.panes.length <= 1 ? undefined : node.headerHidden
+    // A zone down to one pane clears a redundant HIDDEN override (the lone-pane
+    // default is already headerless) but KEEPS an explicit SHOWN override —
+    // once a zone has ever had a tab bar, closing back to one tab leaves it
+    // shown (sticky bar; the off switch is "Hide tab bar"). `false` survives.
+    const headerHidden = node.panes.length <= 1 && node.headerHidden !== false ? undefined : node.headerHidden
 
     if (active === node.active && headerHidden === node.headerHidden) {
       return node
@@ -185,17 +184,21 @@ export function normalize(node: LayoutNode): LayoutNode | null {
   return { ...node, children, weights }
 }
 
-/** Remove a pane wherever it lives. */
+/** Remove a pane wherever it lives. Closing the ACTIVE tab activates its
+ *  previous neighbor (the next one when it was first) — browser-tab feel,
+ *  never a jump to the strip's start. */
 export function removePane(node: LayoutNode, paneId: string): LayoutNode | null {
   const walk = (n: LayoutNode): LayoutNode => {
     if (n.type === 'group') {
-      if (!n.panes.includes(paneId)) {
+      const at = n.panes.indexOf(paneId)
+
+      if (at === -1) {
         return n
       }
 
       const panes = n.panes.filter(p => p !== paneId)
 
-      return { ...n, panes, active: n.active === paneId ? panes[0] : n.active }
+      return { ...n, panes, active: n.active === paneId ? panes[Math.max(0, at - 1)] : n.active }
     }
 
     return { ...n, children: n.children.map(walk) }
@@ -214,7 +217,10 @@ export function insertAtGroup(
   node: LayoutNode,
   targetGroupId: string,
   paneId: string,
-  pos: DropPosition
+  pos: DropPosition,
+  /** Center drops only: stack BEFORE this pane id (`null`/omitted = append) —
+   *  the tab-strip insertion divider's slot. */
+  before?: null | string
 ): LayoutNode | null {
   const walk = (n: LayoutNode): LayoutNode => {
     if (n.type === 'group') {
@@ -223,15 +229,21 @@ export function insertAtGroup(
       }
 
       if (pos === 'center') {
-        // Gaining a pane clears an explicit header-hide: a stack you can't
-        // see (or leave) is a trap, so the chips always come back on drop.
-        return { ...n, panes: [...n.panes, paneId], active: paneId, headerHidden: undefined }
+        const at = before ? n.panes.indexOf(before) : -1
+        const panes = at >= 0 ? [...n.panes.slice(0, at), paneId, ...n.panes.slice(at)] : [...n.panes, paneId]
+
+        // Gaining a pane pins the header EXPLICITLY shown (not just cleared):
+        // a stack you can't see is a trap, and once a zone has ever stacked
+        // the bar STAYS when it drops back to one tab — the auto-hide flicker
+        // while dragging tabs around felt broken. Hiding is the user's call
+        // (double-click / zone menu).
+        return { ...n, panes, active: paneId, headerHidden: false }
       }
 
       const orientation: Orientation = pos === 'left' || pos === 'right' ? 'row' : 'column'
-      const before = pos === 'left' || pos === 'top'
+      const leading = pos === 'left' || pos === 'top'
       const added = group([paneId])
-      const children = before ? [added, n] : [n, added]
+      const children = leading ? [added, n] : [n, added]
 
       return split(orientation, children, [1, 1])
     }
@@ -272,7 +284,7 @@ function shapeSignature(node: LayoutNode): string {
 export function movePane(
   root: LayoutNode,
   paneId: string,
-  target: { groupId: string; pos: DropPosition }
+  target: { groupId: string; pos: DropPosition; before?: null | string }
 ): LayoutNode {
   const from = findGroupOfPane(root, paneId)
 
@@ -292,7 +304,7 @@ export function movePane(
     return root
   }
 
-  const next = insertAtGroup(without, target.groupId, paneId, target.pos) ?? root
+  const next = insertAtGroup(without, target.groupId, paneId, target.pos, target.before) ?? root
 
   return shapeSignature(next) === shapeSignature(root) ? root : next
 }
@@ -533,15 +545,23 @@ export function splitGroupZone(root: LayoutNode, groupId: string, side: RootEdge
   )
 }
 
-/** Mirror the layout horizontally (the titlebar flip toggle): reverse the
- *  root row split. Nested splits keep their internal order — flipping swaps
- *  which SIDE each rail lives on, not the rails' contents. */
-export function mirrorRootRow(root: LayoutNode): LayoutNode {
-  if (root.type !== 'split' || root.orientation !== 'row') {
+/** Mirror the layout HORIZONTALLY (the titlebar flip toggle / ⌘\): reverse
+ *  every ROW split's child order at EVERY depth, so left↔right flips
+ *  everywhere. A right rail lands on the left with its OWN internal order
+ *  mirrored too — so preview stays directly beside the file tree instead of
+ *  jumping to the far edge (a shallow root-only reverse left nested rails in
+ *  place). COLUMN splits keep their top↔bottom order (the terminal stays at
+ *  the bottom). Its own involution: flipping twice is the identity. */
+export function mirrorTreeHorizontal(root: LayoutNode): LayoutNode {
+  if (root.type === 'group') {
     return root
   }
 
-  return { ...root, children: [...root.children].reverse(), weights: [...root.weights].reverse() }
+  const children = root.children.map(mirrorTreeHorizontal)
+
+  return root.orientation === 'row'
+    ? { ...root, children: children.reverse(), weights: [...root.weights].reverse() }
+    : { ...root, children }
 }
 
 export function setSplitWeights(root: LayoutNode, splitId: string, weights: number[]): LayoutNode {
