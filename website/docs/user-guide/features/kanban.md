@@ -211,7 +211,14 @@ hermes kanban watch
 # 5. See the board (you)
 hermes kanban list
 hermes kanban stats
+
+# Export a sanitized snapshot without changing board state
+hermes kanban --board default export --json
 ```
+
+The read-only exporter verifies the SQLite handles it actually opened. On a platform
+without safe handle attestation it fails closed as unavailable instead of falling
+back to pathname-only reads.
 
 When the dispatcher picks up `t_abcd` and spawns the `researcher` profile, the very first thing that worker's model does is call `kanban_show()` to read its task. It doesn't run `hermes kanban show t_abcd`.
 

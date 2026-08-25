@@ -250,6 +250,21 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     # --- init ---
     sub.add_parser("init", help="Create kanban.db if missing (idempotent)")
 
+    p_export = sub.add_parser(
+        "export",
+        help="Export a sanitized, read-only board snapshot",
+        description=(
+            "Read the existing board without initialization or status updates and "
+            "emit an allowlisted task snapshot. Requires an explicit --board."
+        ),
+    )
+    p_export.add_argument(
+        "--json",
+        action="store_true",
+        required=True,
+        help="Emit the versioned JSON snapshot (maximum 200 active tasks)",
+    )
+
     # --- boards (new in v2: multi-project support) ---
     p_boards = sub.add_parser(
         "boards",
@@ -1040,6 +1055,20 @@ def kanban_command(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         return 0
+
+    # Keep export outside both delegated-child mutation authorization and the
+    # ordinary board scope/auto-initialization path. The executable's exact
+    # supported argv shape is intercepted even earlier in hermes_cli.main,
+    # before logging/config startup; this branch keeps direct parser users
+    # read-only without weakening the denial for any mutating verb.
+    if action == "export":
+        board = getattr(args, "board", None)
+        if not board:
+            print("kanban: export requires an explicit --board", file=sys.stderr)
+            return 2
+        from hermes_cli.kanban_export import export_board_json
+
+        return export_board_json(board)
 
     # Fast-fail for clearer CLI UX only. The durable trust boundary is lower in
     # hermes_cli.kanban_db, because children can import DB mutators directly.

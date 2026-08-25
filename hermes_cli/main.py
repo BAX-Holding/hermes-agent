@@ -81,6 +81,17 @@ import sys
 _bootstrap_root = os.path.realpath(os.path.join(os.path.dirname(__file__), os.pardir))
 if _bootstrap_root not in sys.path:
     sys.path.insert(0, _bootstrap_root)
+
+# The sanitized Kanban export is a deliberately narrow read-only edge. Handle
+# its exact argv shape before startup recovery, profile/config, and logging,
+# all of which may create or change files. Ordinary invocations continue into
+# the complete upstream startup path unchanged.
+from hermes_cli.kanban_export import try_early_export as _try_early_kanban_export
+
+_early_kanban_export_rc = _try_early_kanban_export(sys.argv[1:])
+if _early_kanban_export_rc is not None:
+    raise SystemExit(_early_kanban_export_rc)
+
 from hermes_cli import _startup_fast  # noqa: E402
 
 # Early venv self-heal — MUST run before any third-party import below.  When
